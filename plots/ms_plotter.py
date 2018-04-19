@@ -14,6 +14,12 @@ Constants that the user may wish to change are indicated by: # !!!!! {descriptio
 Megan Splettstoesser mspletts@fnal.gov"""
 
 
+# astropy is needed only if analyzing a coadd catalog #
+'''
+from astropy.io import fits
+from astropy.table import Column
+from astropy.table import Table
+'''
 import matplotlib.pyplot as plt
 import matplotlib
 import numpy as np
@@ -74,14 +80,14 @@ SAVE_PLOT = False
 SHOW_PLOT = True
 
 # !!!!! Limits for the vertical axis. 'None' is an allowed value and will result in default scaling #
-YLOW, YHIGH = None, None
+YLOW, YHIGH = -20, 20
 
 # Swap horizontal axis? Default is magnitude1. Matching script ms_matcher determines which catalog is 1 and which is 2. Generally SWAP_HAX does not need to be changed unless the truth catalog values are not on the horizontal axis. #
 SWAP_HAX = False
 
 
 ### Catalog attributes ###
-# !!!!! Allowed values: sof, mof, star_truth, gal_truth, coadd (#TODO under construction). Both can be 'sof' and both can be 'mof' if INJ1 and INJ2 are different. Note that truth catalogs always have INJ=True. #
+# !!!!! Allowed values: sof, mof, star_truth, gal_truth, coadd. Both can be 'sof' and both can be 'mof' if INJ1 and INJ2 are different. Note that truth catalogs always have INJ=True. #
 MATCH_CAT1, MATCH_CAT2 = 'gal_truth', 'sof'
 # !!!!! Booleans. Examine injected catalogs? #
 INJ1, INJ2 = True, True
@@ -139,22 +145,22 @@ def get_floats_from_string(df, filter_name, hdr):
 	# Each element (elmt) is of form '(1, 2, 3, 4)' #
 	for elmt in strings:
 
-		if filter_name == 'g':
+		if filter_name is 'g':
 			i = 1
 			idx1 = elmt.find('(') + i
 			idx2 = elmt.find(',')
 
-		if filter_name == 'r':
+		if filter_name is 'r':
 			i = 2
 			idx1 = elmt.replace(',', ';', 0).find(',') + i
 			idx2 = elmt.replace(',', ';', 1).find(',')
 
-		if filter_name == 'i':
+		if filter_name is 'i':
 			i = 2
 			idx1 = elmt.replace(',', ';', 1,).find(',') + i
 			idx2 = elmt.replace(',', ';', 2).find(',')
 
-		if filter_name == 'z':
+		if filter_name is 'z':
 			i = 2
 			idx1 = elmt.replace(',', ';', 2).find(',') + i
 			idx2 = elmt.find(')')
@@ -194,22 +200,22 @@ def get_matrix_diagonal_element(df, filter_name, hdr):
 	# Each element in `matrices` is a matrix of form '((11,12,13,14), (21,22,23,24), (31,32,33,34), (41,42,43,44))' #
 	for matrix in matrices:
 
-		if filter_name == 'g':
+		if filter_name is 'g':
  			i, j = 2, 0
 			idx1 = 0
 			idx2 = matrix.find(',')
 
-		if filter_name == 'r':
+		if filter_name is 'r':
 			i, j = 2, 0
 			idx1 = matrix.replace(',', ';', 4).find(',')
 			idx2 = matrix.replace(',', ';', 5).find(',')
 
-		if filter_name == 'i':
+		if filter_name is 'i':
 			i, j = 2, 0
 			idx1 = matrix.replace(',', ';', 9).find(',')
 			idx2 = matrix.replace(',', ';', 10).find(',')
 
-		if filter_name == 'z':
+		if filter_name is 'z':
 			i, j = 2, -1
 			idx1 = matrix.replace(',', ';', 14).find(',')
 			idx2 = matrix.replace(',', ';', 15).find(',')
@@ -526,18 +532,6 @@ def calculate_and_bin_cm_T_signal_to_noise(cm_t_hdr, cm_t_err_hdr, df, idx_good,
 		s2n (list of floats) -- cm_T signal-to-noise at each 'safe' index.
 	"""
 
-	'''
-	full_cm_t = df[cm_t_hdr]
-	full_cm_t_err = df[cm_t_err_hdr]
-
-	cm_t, cm_t_err = [], []
-
-	# Remove objects with flags #
-	for i in idx_good:
-		cm_t.append(full_cm_t[i])
-		cm_t_err.append(full_cm_t_err[i])
-	'''
-
 	cm_t = get_good_data(df=df, hdr=cm_t_hdr, idx_good=idx_good, magnitude=False, filter_name=None)
 	cm_t_err = get_good_data(df=df, hdr=cm_t_err_hdr, idx_good=idx_good, magnitude=False, filter_name=None)
 
@@ -591,8 +585,10 @@ def get_68percentile_from_normalized_data(norm_dm_list, bins, hax_mag_list):
 		vax_68percentile (list of floats) -- Point on the vertical axis (vax) corresponding to 68 percentile. Each element in the list corresponds to a different bin.
 		bins (list of floats) -- Bins used in error calculation.
 	"""
-
 	vax_68percentile = []
+
+	neg_vax_34percentile, pos_vax_34percentile = [], []
+
 
 	PLOT_HIST = False
 
@@ -601,36 +597,62 @@ def get_68percentile_from_normalized_data(norm_dm_list, bins, hax_mag_list):
 
 		if norm_dm_list[b] == 0:
 			vax_68percentile.append(0)
+			neg_vax_34percentile.append(0)
+			pos_vax_34percentile.append(0)
 
 		if norm_dm_list[b] != 0:
 
-			# Plot histogram to see distrubtion of data (data is not normally distributed) #
-			if PLOT_HIST:
-				plt.figure()
-				norm_dm = [abs(elmt) for elmt in norm_dm_list[b]]
-				plt.hist(norm_dm)
-				plt.title('Bin LHS: ' + str(bins[b]))
-				plt.xlabel(r'$\Delta M$')
-				plt.axvline(x=0, color='black', linestyle=':', linewidth=0.5)	
-				plt.show()
-		
+			### Find 68th percentile about zero ### 	
 			# Values in current bin (icb) #
 			vax_mag_list_icb = norm_dm_list[b]
 			# Take absolute value of each point in bin #
-			vax_mag_list_icb = [abs(elmt) for elmt in vax_mag_list_icb]
+			abs_vax_mag_list_icb = [abs(elmt) for elmt in vax_mag_list_icb]
 			# Percentile sorts the data #
-			vax_68p_icb = np.percentile(vax_mag_list_icb, 68, interpolation='lower')
-			vax_68percentile.append(vax_68p_icb)
-			# Check the percentile because interpolation='lower' was used #
-			num = 0
-			for j in np.arange(0, len(norm_dm_list[b])):
-				if abs(norm_dm_list[b][j]) <= vax_68p_icb:
-					num += 1
-			if PRINTOUTS:
+			vax_68percentile.append(np.percentile(abs_vax_mag_list_icb, 68, interpolation='lower'))	
+
+			if PRINTOUTS_MINOR:
+				# Check the percentile because interpolation='lower' was used #
+				num = 0
+				for j in np.arange(0, len(norm_dm_list[b])):
+					if abs(norm_dm_list[b][j]) <= np.percentile(abs_vax_mag_list_icb, 68, interpolation='lower'):
+						num += 1
 				print 'Number of objects within 68 percentile via np.percentile(interpolation=lower): ', float(num)/len(norm_dm_list[b]), '...\n'
 
 
-	return vax_68percentile, bins
+			### Find 34th percentile of positive and negative values separately ###
+			neg_vax, pos_vax = [], []
+			counter_neg, counter_pos = 0, 0
+			for j in np.arange(0, len(vax_mag_list_icb)):
+				if vax_mag_list_icb[j] < 0:
+					neg_vax.append(vax_mag_list_icb[j])
+					counter_neg += 1
+				if vax_mag_list_icb[j] > 0:
+					pos_vax.append(vax_mag_list_icb[j])
+					counter_pos += 1
+
+			# Check if lists are populated #
+			if counter_neg > 0: 
+				neg_vax_34percentile.append(np.percentile(neg_vax, 34, interpolation='lower'))
+			if counter_pos > 0:
+				pos_vax_34percentile.append(np.percentile(pos_vax, 34, interpolation='lower'))
+			if counter_neg == 0:
+				neg_vax_34percentile.append(0)
+			if counter_pos == 0:
+				pos_vax_34percentile.append(0)
+
+
+			# Plot histogram to see distrubtion of data (data is not normally distributed) #
+                        if PLOT_HIST:
+                                plt.figure()
+                                norm_dm = [abs(elmt) for elmt in norm_dm_list[b]]
+                                plt.hist(norm_dm)
+                                plt.title('Bin LHS: ' + str(bins[b]))
+                                plt.xlabel(r'$\Delta M$')
+                                plt.axvline(x=0, color='black', linestyle=':', linewidth=0.5)
+                                plt.show()
+
+
+	return vax_68percentile, bins, neg_vax_34percentile, pos_vax_34percentile
 
 
 
@@ -640,7 +662,7 @@ def get_68percentile_from_normalized_data(norm_dm_list, bins, hax_mag_list):
 
 
 
-def bin_and_cut_measured_magnitude_error_dm3(clean_magnitude1, clean_magnitude2, error1, error2, swap_hax, axlabel1, axlabel2, fd_mag_bins):
+def bin_and_cut_measured_magnitude_error(clean_magnitude1, clean_magnitude2, error1, error2, swap_hax, axlabel1, axlabel2, fd_mag_bins):
         """Remove error values corresponding to objects where |Delta-M| > 3.
 
         Args:
@@ -742,7 +764,10 @@ def bin_and_cut_measured_magnitude_error_dm3(clean_magnitude1, clean_magnitude2,
 
                 # Add zeros to empty bins and bins with a small number of points #
 		# CONST = 0.0002, len(hax_mag) * CONST #
-		CONST = 10
+		if STACK_REALIZATIONS:
+			CONST = 30
+		if STACK_REALIZATIONS is False:
+			CONST = 10
 		if counter_err <= CONST:
                         counter_empty_bin += 1
                         b_err_median.append(0.0)
@@ -801,7 +826,7 @@ def normalize_plot_maintain_bin_structure(clean_magnitude1, clean_magnitude2, er
 
 	norm_dm_list, hax_mag_list = [], []
 
-	b_err_median, bins, b_hax_mag_list, b_vax_mag_list = bin_and_cut_measured_magnitude_error_dm3(clean_magnitude1=clean_magnitude1, clean_magnitude2=clean_magnitude2, error1=error1, error2=error2, swap_hax=swap_hax, axlabel1=axlabel1, axlabel2=axlabel2, fd_mag_bins=fd_mag_bins)[2:-1]
+	b_err_median, bins, b_hax_mag_list, b_vax_mag_list = bin_and_cut_measured_magnitude_error(clean_magnitude1=clean_magnitude1, clean_magnitude2=clean_magnitude2, error1=error1, error2=error2, swap_hax=swap_hax, axlabel1=axlabel1, axlabel2=axlabel2, fd_mag_bins=fd_mag_bins)[2:-1]
 
 
 	### Identify which magnitude will be plotted on the horizontal axis (hax) ###
@@ -819,9 +844,8 @@ def normalize_plot_maintain_bin_structure(clean_magnitude1, clean_magnitude2, er
 
 		# 0 is a placeholder for empty bins and bins with few objects #
 		if vax_mag_icb == 0:
-			norm_dm_list.append(0.0)	
+			norm_dm_list.append(0)	
 			hax_mag_list.append(0)
-	
 		#if vax_mag_icb != 0:
 		if b_err_median[b] != 0:
 			for i in np.arange(0, len(vax_mag_icb)):
@@ -831,7 +855,6 @@ def normalize_plot_maintain_bin_structure(clean_magnitude1, clean_magnitude2, er
 			# List of lists to keep bin structure #
 			hax_mag_list.append(hax_mag_icb)
 			norm_dm_list.append(norm_dm_icb)
-
 
 	return norm_dm_list, bins, hax_mag_list
 
@@ -843,7 +866,7 @@ def normalize_plot_maintain_bin_structure(clean_magnitude1, clean_magnitude2, er
 
 
 
-def normalize_plot(norm_dm_list, bins, hax_mag_list):
+def normalize_plot(norm_delta_mag_list, bins, hax_mag_list):
 	"""Normalize plot to 1-sigma curve using tame magnitude errors only (use bin_and_cut_measured_magnitude_error()).
 
 	Args:
@@ -856,12 +879,12 @@ def normalize_plot(norm_dm_list, bins, hax_mag_list):
 	"""
 
 	### Remove zeros so that lists can be flattened. Zeros (int) were placeholders for missing lists due to empty or small bin. ###
-	norm_dm_list[:] = [temp for temp in norm_dm_list if temp != 0]
+	norm_delta_mag_list[:] = [temp for temp in norm_delta_mag_list if temp != 0]
 	hax_mag_list[:] = [temp for temp in hax_mag_list if temp != 0]
 
 	### Flatten lists ###
 	hax_mag = [item for sublist in hax_mag_list for item in sublist]
-	norm_dm = [item for sublist in norm_dm_list for item in sublist]
+	norm_dm = [item for sublist in norm_delta_mag_list for item in sublist]
 
 
 	return norm_dm, hax_mag, bins
@@ -874,7 +897,7 @@ def normalize_plot(norm_dm_list, bins, hax_mag_list):
 
 
 
-def one_sigma_counter(norm_delta_mag):
+def one_sigma_counter(norm_delta_mag, clean_magnitude1, bins, hax_mag):
 	"""Find the number of objects within 1-sigma, where 1-sigma is calculated according to the error.
 
 	Args:
@@ -885,12 +908,19 @@ def one_sigma_counter(norm_delta_mag):
 
 	counter_1sig = 0
 
+	# Cutoffs were introduced in error calculation. Consider only points not cutoff #
+	maglow, maghigh = min(bins), max(bins)
+	hax_mag, norm_delta_mag = np.array(hax_mag), np.array(norm_delta_mag)
+	norm_delta_mag = norm_delta_mag[(hax_mag >= maglow) & (hax_mag <= maghigh)]
+
 	for k in norm_delta_mag:
 		if abs(k) < 1.0:
 			counter_1sig += 1
 
 	if PRINTOUTS:
-		print 'Fraction of objects within 1-sigma: ', counter_1sig, ' / ', len(clean_magnitude1), ' = ', str(float(counter_1sig) / len(clean_magnitude1)), ' \n'
+		print 'Fraction of objects within 1-sigma: ', counter_1sig, ' / ', len(norm_delta_mag), ' = ', str(float(counter_1sig) / len(norm_delta_mag))
+		print ' Fraction of objects considered from clean magnitude: ', str(float(len(norm_delta_mag)) / len(clean_magnitude1)), '\n'
+
 
 	return counter_1sig
 
@@ -937,17 +967,19 @@ def get_color(filter_name):
 		cmap (str) -- Colormap used for Delta-Magnitude colorbars.
 	"""
 
-	if filter_name == 'g':
+	if filter_name is 'g':
 		color, cmap = 'green', 'Greens'
 
-	if filter_name == 'r':
+	if filter_name is 'r':
 		color, cmap = 'orange', 'Oranges'
 
-	if filter_name == 'i':
-		color, cmap = 'purple', 'Purples'
+	if filter_name is 'i':
+		#color, cmap = 'purple', 'Purples'
+		color, cmap = 'darkgrey', 'Greys'
 
-	if filter_name == 'z':
-		color, cmap = 'blue', 'Blues'
+	if filter_name is 'z':
+		#color, cmap = 'blue', 'Blues'
+		color, cmap = 'navy', 'Blues'
 
 	return color, cmap
 
@@ -959,7 +991,7 @@ def get_color(filter_name):
 
 
 
-def logger(fd_nop, fd_1sig, delta_mag, tile_name, filter_name, run_type, realization_number, clean_magnitude1, full_magnitude1):
+def logger(fd_nop, fd_1sig, delta_mag, tile_name, filter_name, run_type, realization_number, clean_magnitude1, full_magnitude1, bins, hax_mag):
 	"""Write to log files to record number of objects plotted and number of objects within 1sigma.
 
 	Args:
@@ -975,7 +1007,7 @@ def logger(fd_nop, fd_1sig, delta_mag, tile_name, filter_name, run_type, realiza
 	"""
 
 	if NORMALIZE:
-		num_1sig = one_sigma_counter(norm_delta_mag=delta_mag)
+		num_1sig = one_sigma_counter(norm_delta_mag=delta_mag, clean_magnitude1=clean_magnitude1, bins=bins, hax_mag=hax_mag)
 
 		# Record number of objects plotted within 1sigma #
 		fd_1sig.write('Number of objects within 1sigma for tile ' + str(tile_name) + ', filter ' + str(filter_name) + ', type ' + str(run_type) + ', realization ' + str(realization_number) + ' : ' + str(num_1sig) + ' / ' + str(len(clean_magnitude1)) + ' = ' + str(float(num_1sig) / len(clean_magnitude1)) + '\n')
@@ -1129,6 +1161,12 @@ def get_plot_variables(filter_name, df, mag_hdr1, mag_hdr2, flag_hdr_list, cm_s2
 	mag_axlabel1 = str(mag_hdr1[:-2]) + '_' + str(axlabel1)
 	mag_axlabel2 = str(mag_hdr2[:-2]) + '_' + str(axlabel2)
 
+	# Coadd catalogs. Combined to get '(m_g, m_r, m_i, m_z)' then matched.  #
+	if MATCH_CAT1 is 'coadd':
+		mag_axlabel1 = 'MAG_AUTO_'+ str(axlabel1)
+	if MATCH_CAT2 is 'coadd':
+		mag_axlabel2 = 'MAG_AUTO_'+ str(axlabel2)
+
         if cm_t_hdr1 is not None:
                 cm_t_axlabel1 = str(cm_t_hdr1[:-2]) + '_' + str(axlabel1)
         if cm_t_hdr2 is not None:
@@ -1222,39 +1260,88 @@ def plotter(cbar_val, error1, error2, fd_nop, fd_1sig, filter_name, clean_magnit
 		mag_axlabel2 = 'inj_' + mag_axlabel2
 
 
+
 	### Values to plot for normalized plot ###
 	if NORMALIZE:
 		# Args needed to call normalize_plot() #
 		norm_dm_list, bins, hax_mag_list = normalize_plot_maintain_bin_structure(clean_magnitude1=clean_magnitude1, clean_magnitude2=clean_magnitude2, error1=error1, error2=error2, swap_hax=swap_hax, axlabel1=axlabel1, axlabel2=axlabel2, fd_mag_bins=fd_mag_bins) 
 
-		deltam, hax_mag, bins = normalize_plot(norm_dm_list=norm_dm_list, bins=bins, hax_mag_list=hax_mag_list)
-
-
-                # Labels and appearance #
-                plt.ylabel('('+str(mag_axlabel1) + ' - ' + str(mag_axlabel2)+') / '+ '$\sigma$', fontsize=8)
+		PLOT_68P, PLOT_34P_SPLIT = True, True
 
 		if PLOT_1SIG:
-			### Plot the 68th percentile calculated from np.percentile() ###
-			vax_68percentile_list, bins = get_68percentile_from_normalized_data(norm_dm_list=norm_dm_list, bins=bins, hax_mag_list=hax_mag_list)
-			# Plot legend once #
-			counter_legend = 0
-			for b in np.arange(0, len(vax_68percentile_list)-1):
-				if vax_68percentile_list[b] != 0:
-					if counter_legend == 0:	
-						plt.plot(np.array([bins[b], bins[b+1]]), np.array([vax_68percentile_list[b], vax_68percentile_list[b]]), color='fuchsia', label='$P_{68}$', linewidth=0.7)
-						counter_legend += 1
-					if counter_legend == 1:
-						# Horizontal bounds #
-						plt.plot(np.array([bins[b], bins[b+1]]), np.array([vax_68percentile_list[b], vax_68percentile_list[b]]), color='fuchsia', linewidth=0.7)
-						plt.plot(np.array([bins[b], bins[b+1]]), -1.0*np.array([vax_68percentile_list[b], vax_68percentile_list[b]]), color='fuchsia', linewidth=0.7)
-						# Vertical bounds #
-						plt.plot(np.array([bins[b], bins[b]]), np.array([-1*vax_68percentile_list[b], vax_68percentile_list[b]]), color='fuchsia', linewidth=0.5, linestyle=':')
-						plt.plot(np.array([bins[b+1], bins[b+1]]), np.array([-1*vax_68percentile_list[b], vax_68percentile_list[b]]), color='fuchsia', linewidth=0.5, linestyle=':')
-			
 
 			### Plot 1-sigma curve according to error calculation ###
-			plt.axhline(y=1.0, color='red', linestyle='--', linewidth=0.7, label='$1 \sigma_{mag\_meas}$')
-			plt.axhline(y=-1.0, color='red', linestyle='--', linewidth=0.7)
+                        plt.axhline(y=1.0, color='red', linestyle='--', linewidth=0.7, label='$1 \sigma_{mag\_meas}$')
+                        plt.axhline(y=-1.0, color='red', linestyle='--', linewidth=0.7)
+
+
+			if PLOT_68P:
+				### Plot the 68th percentile calculated from np.percentile() ###
+				vax_68percentile_list, bins, neg_vax_34percentile, pos_vax_34percentile = get_68percentile_from_normalized_data(norm_dm_list=norm_dm_list, bins=bins, hax_mag_list=hax_mag_list)
+				counter_legend1 = 0
+	
+				for b in np.arange(0, len(neg_vax_34percentile)-1):
+					# Horizontal bar bounds #
+					x_hbound = np.array([bins[b], bins[b+1]])
+					x_vbound = np.array([bins[b], bins[b]])
+
+					if neg_vax_34percentile[b] != 0:
+						# Horizontal bar bounds #
+						neg_y_hbound = np.array([neg_vax_34percentile[b], neg_vax_34percentile[b]])
+						# Vertical bar bounds #
+						y_vbound = np.array([neg_vax_34percentile[b], 0])
+						# Plot #
+						# Plot legend once #
+						if counter_legend1 == 0:
+							plt.plot(x_hbound, neg_y_hbound, color='cyan', label='$\pm P_{34}$')
+							counter_legend1 = 1
+						if counter_legend1 == 1:
+							plt.plot(x_hbound, neg_y_hbound, color='cyan')
+							plt.plot(x_vbound, y_vbound, color='cyan', linewidth=0.7, linestyle=':')
+					if pos_vax_34percentile[b] != 0:
+						# Horizontal bar bounds #
+						pos_y_hbound = np.array([pos_vax_34percentile[b], pos_vax_34percentile[b]])
+						# Vertical bar bounds #
+						y_vbound = np.array([0, pos_vax_34percentile[b]])
+						# Plot #
+						plt.plot(x_hbound, pos_y_hbound, color='cyan')
+						plt.plot(x_vbound, y_vbound, color='cyan', linestyle=':')
+				
+
+	
+			if PLOT_34P_SPLIT:
+				# Set linewidth #
+				lw = 1.0
+				counter_legend2 = 0
+				for b in np.arange(0, len(vax_68percentile_list)-1):
+
+					if vax_68percentile_list[b] != 0:
+
+						# Horizontal bar bounds #
+						x_hbound = np.array([bins[b], bins[b+1]])
+						y_hbound = np.array([vax_68percentile_list[b], vax_68percentile_list[b]])
+						# Vertical bar bounds #
+						x_vbound1, x_vbound2 = np.array([bins[b], bins[b]]), np.array([bins[b+1], bins[b+1]])
+						y_vbound = np.array([-1*vax_68percentile_list[b], vax_68percentile_list[b]])
+
+						# Plot legend once #
+						if counter_legend2 == 0:
+							plt.plot(x_hbound, y_hbound, color='fuchsia', label='$P_{68}$', linewidth=lw)	
+							counter_legend2 += 1
+
+						if counter_legend2 == 1:
+							# Horizontal bar #
+							plt.plot(x_hbound, y_hbound, color='fuchsia', linewidth=lw)
+							plt.plot(x_hbound, -1.0*y_hbound, color='fuchsia', linewidth=lw)
+							# Vertical bar #
+							plt.plot(x_vbound1, y_vbound, color='fuchsia', linewidth=0.7, linestyle=':')
+							plt.plot(x_vbound2, y_vbound, color='fuchsia', linewidth=0.7, linestyle=':')
+			
+
+		### Values to plot ###
+		deltam, hax_mag, bins = normalize_plot(norm_delta_mag_list=norm_dm_list, bins=bins, hax_mag_list=hax_mag_list)
+		# Labels and appearance #
+                plt.ylabel('('+str(mag_axlabel1) + ' - ' + str(mag_axlabel2)+') / '+ '$\sigma$', fontsize=8)
 
 
 
@@ -1270,7 +1357,8 @@ def plotter(cbar_val, error1, error2, fd_nop, fd_1sig, filter_name, clean_magnit
 		plt.ylabel(str(mag_axlabel1) + ' - ' + str(mag_axlabel2), fontsize=9)
 		### 1-sigma curve ###
 		if PLOT_1SIG:
-			hax, vax, err, placehold1, p3, p4, p5 = bin_and_cut_measured_magnitude_error_dm3(error1=error1, error2=error2, clean_magnitude1=clean_magnitude1, clean_magnitude2=clean_magnitude2, swap_hax=swap_hax, axlabel1=mag_axlabel1, axlabel2=mag_axlabel2, fd_mag_bins=fd_mag_bins)
+			hax, vax, err, bins = bin_and_cut_measured_magnitude_error(error1=error1, error2=error2, clean_magnitude1=clean_magnitude1, clean_magnitude2=clean_magnitude2, swap_hax=swap_hax, axlabel1=mag_axlabel1, axlabel2=mag_axlabel2, fd_mag_bins=fd_mag_bins)[:3]
+			#hax, vax, err, placehold1, p3, p4, p5 = bin_and_cut_measured_magnitude_error(error1=error1, error2=error2, clean_magnitude1=clean_magnitude1, clean_magnitude2=clean_magnitude2, swap_hax=swap_hax, axlabel1=mag_axlabel1, axlabel2=mag_axlabel2, fd_mag_bins=fd_mag_bins)
 			### Remove zeros from x, y, and err (zeros were placeholders for instances in which there were no objects in a particular magnitude bin) ###
 			err[:] = [temp for temp in err if temp != 0]
 			hax[:] = [temp for temp in hax if temp != 0]
@@ -1280,13 +1368,14 @@ def plotter(cbar_val, error1, error2, fd_nop, fd_1sig, filter_name, clean_magnit
 			plt.plot(hax, np.array(vax) - np.array(err), color='red', linestyle='-', linewidth=0.7)
 
 
-	if PRINTOUTS:
-		print 'Plotting ', len(clean_magnitude1), ' objects ... \n'
-
 
 	### Write to log files to record the number of objects plotted and the number of objects within 1sigma ###
-	logger(delta_mag=deltam, fd_nop=fd_nop, fd_1sig=fd_1sig, filter_name=filter_name, clean_magnitude1=clean_magnitude1, full_magnitude1=full_magnitude1, realization_number=realization_number, run_type=run_type, tile_name=tile_name)
+	logger(delta_mag=deltam, fd_nop=fd_nop, fd_1sig=fd_1sig, filter_name=filter_name, clean_magnitude1=clean_magnitude1, full_magnitude1=full_magnitude1, realization_number=realization_number, run_type=run_type, tile_name=tile_name, bins=bins, hax_mag=hax_mag)
 
+
+
+	if PRINTOUTS:
+                print 'Plotting ', len(clean_magnitude1), ' objects ... \n'
 
 	### Plot ###
 	# One colorbar at a time. This error is caught at beginning of script #
@@ -1485,7 +1574,7 @@ def get_plot_suptitle(realization_number, tile_name, title_piece1, title_piece2)
 	"""Generate plot title.
 
 	Args:
-		match_type (str) -- Ex: inj_mof_vs_truth_cat #FIXME should contain numbers for subscript so axes are easier to read. USE TITLE PIECE
+		match_type (str) -- Ex: inj_mof_vs_truth_cat 
 		realization_number (str) -- Allowed values: '0' '1' '2' ... 'stacked'.
 		tile_name (str)
 	Returns:
@@ -1555,6 +1644,54 @@ def get_plot_save_name(outdir, realization_number, tile_name, title_piece1, titl
 
 
 
+def get_coadd_mag(fn_g, fn_r, fn_i, fn_z, hdr):
+	"""Solely for use with coadd catalogs. Creates a list of magnitudes of form '(mag_g, mag_r, mag_i, mag_z)' from four catalogs.
+
+	Args:
+		fn -- Filenames. Must be FITS files.
+		hdr (str) -- Header for the magnitude. Headers refer to columns in the matched catalog.
+	Returns:
+		m_griz (list of str) -- Stores magnitudes of each filter in form '(mag_g, mag_r, mag_i, mag_z)'
+	"""
+
+	# Files have not yet been matched, and do not have hdr_1 #
+	hdr = hdr[:-2]
+
+	# Open FITS files #
+	hdu_g = fits.open(fn_g)
+	hdu_r = fits.open(fn_r)
+	hdu_i = fits.open(fn_i)
+	hdu_z = fits.open(fn_z)
+	
+	# Read data #
+	data_g = hdu_g[1].data
+	data_r = hdu_r[1].data
+	data_i = hdu_i[1].data
+	data_z = hdu_z[1].data
+
+	# Get magnitudes #
+	m_g = data_g[hdr]
+	m_r = data_r[hdr]
+	m_i = data_i[hdr]
+	m_z = data_z[hdr]
+
+	m_griz = []
+
+        for i in np.arange(0, len(m_g)):
+                m_griz.append("'("+ str(m_g[i]) + ', ' + str(m_r[i]) + ', ' + str(m_i[i]) + ', ' + str(m_z[i]) + ")'")
+
+	print m_griz
+	sys.exit('check')
+        return m_griz
+
+
+
+
+
+
+
+
+
 def get_star_mag(df):
 	"""Solely for use with star truth catalogs. Computes and creates a list of magnitudes of form '(mag_g, mag_r, mag_i, mag_z)'.
 
@@ -1603,17 +1740,17 @@ class CoaddCat():
 
 		# For plot title #
 		if inj:
-			self.title_piece = 'Inj Coadd Cat (_' + str(suf) +')'
+			self.title_piece = 'Inj Coadd Cat'
 		if inj is False:
-			self.title_piece = 'Coadd Cat (_' + str(suf) +')'
+			self.title_piece = 'Coadd Cat'
 		self.axlabel = 'meas'
 		# Magnitude, is one number #
 		self.mag_hdr = 'MAG_AUTO_' + str(suf)
 		self.mag_axlabel = 'MAG_AUTO_meas'
 		# For error calculation #
 		self.mag_err_hdr = 'MAGERR_AUTO_' + str(suf)
-		self.flux_hdr = None
-		self.flux_cov_hdr = None
+		self.cm_flux_hdr = None
+		self.cm_flux_cov_hdr = None
 		# Size #
 		self.cm_t_hdr = None
 		self.cm_t_err_hdr = None
@@ -1627,10 +1764,14 @@ class CoaddCat():
 		self.cm_mof_flags_hdr = None
 		self.cm_flags_r_hdr = None
 		# For region file #
-		self.ra_hdr = 'ALPHAWIN_J2000' + str(suf)
-		self.dec_hdr = 'DELTAWIN_J2000' + str(suf)
+		self.ra_hdr = 'ALPHAWIN_J2000_' + str(suf)
+		self.dec_hdr = 'DELTAWIN_J2000_' + str(suf)
 		self.a_hdr = 'A_IMAGE_' + str(suf)
 		self.b_hdr = 'B_IMAGE_' + str(suf)
+		# For Eric Huff (EH) quality cuts #
+                self.cm_s2n_r_hdr = None
+                self.psfrec_t_hdr = None
+                self.eh_cuts = False
 
 
 
@@ -1821,7 +1962,7 @@ class StarTruthCat(): #are there sep headers for MOFStarTruthCat and SOFStarTrut
 		self.axlabel = 'true'
 		# Magnitude #
 		self.mag_hdr = 'g_Corr_' + str(suf) 
-		self.mag_axlabel = 'mag_true' #FIXME 
+		self.mag_axlabel = 'mag_true' 
 		# For error calculation #
                 # Is of form 'PSF_MAG_ERR_{filter}_' + str(suf) #
 		self.mag_err_hdr = 'PSF_MAG_ERR_' + str(suf)
@@ -1867,19 +2008,19 @@ def get_class(cat_type, inj, suf):
                 cat_type_class -- Points to the appropriate class which contains constants.
         """
 
-        if cat_type == 'gal_truth':
+        if cat_type is 'gal_truth':
                 cat_type_class = SOFGalTruthCat(inj=inj, suf=suf)
 
-        if cat_type == 'mof':
+        if cat_type is 'mof':
                 cat_type_class = MOFCat(inj=inj, suf=suf)
 
-        if cat_type == 'star_truth':
+        if cat_type is 'star_truth':
                 cat_type_class = StarTruthCat(inj=inj, suf=suf)
 
-        if cat_type == 'sof':
+        if cat_type is 'sof':
                 cat_type_class = SOFCat(inj=inj, suf=suf)
 
-        if cat_type == 'coadd':
+        if cat_type is 'coadd':
                 cat_type_class = CoaddCat(inj=inj, suf=suf)
 
         return cat_type_class
@@ -1892,7 +2033,7 @@ def get_class(cat_type, inj, suf):
 
 
 
-def get_catalog(basepath, cat_type, inj, realization_number, tile_name):
+def get_catalog(basepath, cat_type, inj, realization_number, tile_name, filter_name):
         """Get catalog to analyze.
 	
         Args:
@@ -1901,35 +2042,37 @@ def get_catalog(basepath, cat_type, inj, realization_number, tile_name):
                 inj (bool)
                 realization_number (str) -- Allowed values: '0' '1' '2' ...
                 tile_name -- Different allowed values depending on catalog.
+		filter_name (str) -- Only used with coadd catalogs.
         Returns:
                 fn -- Filename
         """
 
-        if cat_type == 'gal_truth' and inj:
+        if cat_type is 'gal_truth' and inj:
                 fn = os.path.join(basepath, 'balrog_images', realization_number, tile_name, tile_name+'_'+realization_number+'_balrog_truth_cat_gals.fits')
-        if cat_type == 'gal_truth' and inj is False:
-                print 'No non-injected truth catalog exists.'
+        if cat_type is 'gal_truth' and inj is False:
+                sys.exit('No non-injected truth catalog exists.')
 
-        if cat_type == 'star_truth' and inj:
+        if cat_type is 'star_truth' and inj:
                 fn = os.path.join(basepath, 'balrog_images', realization_number, tile_name, tile_name+'_'+realization_number+'_balrog_truth_cat_stars.fits')
-        if cat_type == 'star_truth' and inj is False:
-                print 'No non-injected truth catalog exists.'
+        if cat_type is 'star_truth' and inj is False:
+		sys.exit('No non-injected truth catalog exists.')
 
-        if cat_type == 'sof' and inj:
+        if cat_type is 'sof' and inj:
                 fn = os.path.join(basepath, 'balrog_images', realization_number, tile_name, 'sof', tile_name+'_sof.fits')
-        if cat_type == 'sof' and inj is False:
+        if cat_type is 'sof' and inj is False:
                 fn = os.path.join(basepath, tile_name, 'sof', tile_name+'_sof.fits')
 
-        if cat_type == 'mof' and inj:
+        if cat_type is 'mof' and inj:
                 fn = os.path.join(basepath, 'balrog_images', realization_number, tile_name, 'mof', tile_name+'_mof.fits')
-        if cat_type == 'mof' and inj is False:
+        if cat_type is 'mof' and inj is False:
                 fn = os.path.join(basepath, tile_name, 'mof', tile_name+'_mof.fits')
 
-        #FIXME fn for coadds is dependent on filter
-        if cat_type == 'coadd' and inj:
-                fn = os.path.join(basepath, realization_number, tile_name, 'coadd', tile_name+'i_cat.fits')
-        if cat_type == 'coadd' and inj is False:
-                fn = os.path.join(basepath, tile_name, 'coadd', tile_name+'i_cat.fits')
+        if cat_type is 'coadd' and inj:
+		#fn = os.path.join(basepath, realization_number, tile_name, 'coadd', tile_name+'_i_cat.fits')
+                fn = os.path.join(basepath, realization_number, tile_name, 'coadd', tile_name+'_'+filter_name+'_cat.fits')
+        if cat_type is 'coadd' and inj is False:
+		#fn = os.path.join(basepath, tile_name, 'coadd', tile_name+'_i_cat.fits')
+                fn = os.path.join(basepath, tile_name, 'coadd', tile_name+'_'+filter_name+'_cat.fits')
 
         return fn
 
@@ -2019,7 +2162,7 @@ if LOG_FLAGS is False:
 
 
 
-def matcher(basepath, outdir, realization_number, tile_name):
+def matcher(basepath, outdir, realization_number, tile_name, filter_name):
         """Match two catalogs on RA and DEC with a tolerance of 1 arcsecond via STILTS.
 
         Args:
@@ -2036,8 +2179,15 @@ def matcher(basepath, outdir, realization_number, tile_name):
         ### Get arguments to pass to ms_matcher ###
 
         # Input catalogs for STILTS #
-        in1 = get_catalog(basepath=basepath, cat_type=MATCH_CAT1, inj=INJ1, realization_number=realization_number, tile_name=tile_name)
-        in2 = get_catalog(basepath=basepath, cat_type=MATCH_CAT2, inj=INJ2, realization_number=realization_number, tile_name=tile_name)
+	if MATCH_CAT1 is not 'coadd':
+		in1 = get_catalog(basepath=basepath, cat_type=MATCH_CAT1, inj=INJ1, realization_number=realization_number, tile_name=tile_name, filter_name=filter_name)
+	if MATCH_CAT1 is 'coadd':
+		in1 =  get_coadd_matcher_catalog(basepath=basepath, cat_type=MATCH_CAT1, inj=INJ1, realization_number=realization_number, tile_name=tile_name)
+
+	if MATCH_CAT2 is not 'coadd':
+		in2 = get_catalog(basepath=basepath, cat_type=MATCH_CAT2, inj=INJ2, realization_number=realization_number, tile_name=tile_name, filter_name=filter_name)
+	if MATCH_CAT2 is 'coadd':
+		in2 =  get_coadd_matcher_catalog(basepath=basepath, cat_type=MATCH_CAT2, inj=INJ2, realization_number=realization_number, tile_name=tile_name)
 
         # Output catalog name for STILTS #
         outname = os.path.join(outdir, tile_name+'_'+realization_number+'_'+str(MATCH_TYPE)+'_match1and2.csv')
@@ -2088,7 +2238,7 @@ def make_plots(m1_hdr, m2_hdr, ylow, yhigh):
 			if os.path.isfile(fn_stack) is False:
 				all_fn = []
 				for r in ALL_REALIZATIONS:
-					fn = matcher(basepath=basepath, outdir=outdir, realization_number=r, tile_name=t)
+					fn = matcher(basepath=basepath, outdir=outdir, realization_number=r, tile_name=t, filter_name=None)
 					all_fn.append(fn)
 
 				print 'Stacking realizations. ', len(all_fn), 'files ...'
@@ -2106,15 +2256,15 @@ def make_plots(m1_hdr, m2_hdr, ylow, yhigh):
 
 
 			### Handle star truth catalogs ###
-			if MATCH_CAT1 == 'star_truth' or MATCH_CAT2 == 'star_truth':
+			if MATCH_CAT1 is 'star_truth' or MATCH_CAT2 is 'star_truth':
 				print 'Adding new column to matched csv ...'
 				star_mag = get_star_mag(df=df)
 				# 'mag_a' short for mag_all. New header must be of the form {base}_x where x is a single character because of the way m_axlabel is created from m_hdr #
 				df.insert(len(df.columns), 'mag_a', star_mag)
 
-			if MATCH_CAT1 == 'star_truth':
+			if MATCH_CAT1 is 'star_truth':
 				m1_hdr = 'mag_a'
-			if MATCH_CAT2 == 'star_truth':
+			if MATCH_CAT2 is 'star_truth':
 				m2_hdr = 'mag_a'
 
 			subplotter(cm_flux_hdr1=cm_flux_hdr1, cm_flux_hdr2=cm_flux_hdr2, cm_flux_cov_hdr1=cm_flux_cov_hdr1, cm_flux_cov_hdr2=cm_flux_cov_hdr2, cm_t_hdr1=cm_t_hdr1, cm_t_hdr2=cm_t_hdr2, cm_t_err_hdr1=cm_t_err_hdr1, cm_t_err_hdr2=cm_t_err_hdr2, cm_s2n_r_hdr1=cm_s2n_r_hdr1, cm_s2n_r_hdr2=cm_s2n_r_hdr2, psfrec_t_hdr1=psfrec_t_hdr1, psfrec_t_hdr2=psfrec_t_hdr2, df=df, fd_1sig=fd_1sig, fd_flag=fd_flag, fd_nop=fd_nop, flag_idx=flag_idx, flag_list=flaglist, mag_hdr1=m1_hdr, mag_hdr2=m2_hdr, mag_err_hdr1=mag_err_hdr1, mag_err_hdr2=mag_err_hdr2, plot_name=fn, plot_title=title, realization_number='stacked', run_type=None, tile_name=t, swap_hax=SWAP_HAX, stack_realizations=STACK_REALIZATIONS, cm_t_s2n_axlabel1=cm_t_s2n_axlabel1, cm_t_s2n_axlabel2=cm_t_s2n_axlabel2, axlabel1=axlabel1, axlabel2=axlabel2, fd_mag_bins=fd_mag_bins, ylow=ylow, yhigh=yhigh)
@@ -2130,7 +2280,7 @@ def make_plots(m1_hdr, m2_hdr, ylow, yhigh):
                 for r in ALL_REALIZATIONS:
 			
 			# Filename #
-                        fn = matcher(basepath=basepath, outdir=outdir, realization_number=r, tile_name=t)
+                        fn = matcher(basepath=basepath, outdir=outdir, realization_number=r, tile_name=t, filter_name=None)
 			# DataFrame #
                         df = pd.read_csv(fn)
 
@@ -2140,21 +2290,77 @@ def make_plots(m1_hdr, m2_hdr, ylow, yhigh):
                         title = get_plot_suptitle(realization_number=r, tile_name=t, title_piece1=title_piece1, title_piece2=title_piece2)
 
 
-                        if MATCH_CAT1 == 'star_truth' or MATCH_CAT2 == 'star_truth':
+			### Handle star truth catalogs ###
+                        if MATCH_CAT1 is 'star_truth' or MATCH_CAT2 is 'star_truth':
                                 print 'Adding new column to matched csv ... \n'
                                 star_mag = get_star_mag(df=df)
                                 df.insert(len(df.columns), 'mag_a', star_mag)
 
-                        if MATCH_CAT1 == 'star_truth':
+			# Star truth catalogs matched then combined #
+                        if MATCH_CAT1 is 'star_truth':
                                 m1_hdr = 'mag_a'
-                        if MATCH_CAT2 == 'star_truth':
+                        if MATCH_CAT2 is 'star_truth':
                                 m2_hdr = 'mag_a'
+
+			
+			### Handle coadd catalogs. New column has been added with name 'mag_c' #
+			if MATCH_CAT1 is 'coadd':
+				m1_hdr = 'mag_c_1'
+			if MATCH_CAT2 is 'coadd':
+				m2_hdr = 'mag_c_2'
+
 
 
 			subplotter(cm_flux_hdr1=cm_flux_hdr1, cm_flux_hdr2=cm_flux_hdr2, cm_flux_cov_hdr1=cm_flux_cov_hdr1, cm_flux_cov_hdr2=cm_flux_cov_hdr2, cm_t_hdr1=cm_t_hdr1, cm_t_hdr2=cm_t_hdr2, cm_t_err_hdr1=cm_t_err_hdr1, cm_t_err_hdr2=cm_t_err_hdr2, cm_s2n_r_hdr1=cm_s2n_r_hdr1, cm_s2n_r_hdr2=cm_s2n_r_hdr2, psfrec_t_hdr1=psfrec_t_hdr1, psfrec_t_hdr2=psfrec_t_hdr2, df=df, fd_1sig=fd_1sig, fd_flag=fd_flag, fd_nop=fd_nop, flag_idx=flag_idx, flag_list=flaglist, mag_hdr1=m1_hdr, mag_hdr2=m2_hdr, mag_err_hdr1=mag_err_hdr1, mag_err_hdr2=mag_err_hdr2, plot_name=fn, plot_title=title, realization_number=r, run_type=None, tile_name=t, swap_hax=SWAP_HAX, stack_realizations=STACK_REALIZATIONS, cm_t_s2n_axlabel1=cm_t_s2n_axlabel1, cm_t_s2n_axlabel2=cm_t_s2n_axlabel2, axlabel1=axlabel1, axlabel2=axlabel2, fd_mag_bins=fd_mag_bins, ylow=ylow, yhigh=yhigh)
 
 
 	return 0
+
+
+
+
+
+
+
+def get_coadd_matcher_catalog(basepath, cat_type, inj, realization_number, tile_name):
+	"""Make FITS file that includes a column of form '(m_g, m_r, m_i, m_z)' where m is magnitude. Column will be added to '..._i_cat.fits'. This will be used in matcher().
+
+	Args:
+	Returns:
+		fn -- Filename. Is a FITS file.
+	"""
+
+	fn_new = os.path.join(outdir, str(tilename) + '_i_cat.fits')
+
+	# Check if new coadd catalog has already been created #
+	if os.path.isfile(fn_new):
+		print 'New coadd catalog already exists ...\n'
+
+
+	if os.path.isfile(fn_new) is False:	
+		print 'Adding a column to i-band coadd catalog. Will take a moment ...\n'
+
+		# Get list of filenames #
+		fn_griz = []
+		for f in ALL_FILTERS:
+			fn_griz.append(get_catalog(basepath=basepath, cat_type=MATCH_CAT1, inj=INJ1, realization_number=realization, tile_name=tilename, filter_name=f))
+		fn_g, fn_r, fn_i, fn_z = fn_griz
+
+		# Get coadd magnitude (mag_c) to be of form '(m_g, m_r, m_i, m_z)'. Recall that this is a string #
+		mag_c = get_coadd_mag(fn_g=fn_g, fn_r=fn_r, fn_i=fn_i, fn_z=fn_z, hdr=m1_hdr)
+  
+	       # Create new table #
+		mag_c = Column(mag_c, name='mag_c')
+
+		# Add new table to i-band coadd catalog #
+		table = Table.read(fn_i)
+		table.add_column(mag_c, index=0)
+        
+		# Save new table as FITS #
+		table.write(fn_new)
+
+
+	return fn_new 
 
 
 
